@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import argparse
+from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 from models.lenet import LeNet
 from models.resnet18 import get_resnet18
@@ -37,12 +39,16 @@ def train_model(model_name="lenet", dataset="MNIST", epochs=10, batch_size=64, l
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
+    # Metric storage (sampled every 5 epochs)
+    epochs_recorded = []
+    train_losses, train_accuracies = [], []
+    test_losses, test_accuracies = [], []
 
     for epoch in range(1, epochs + 1):
         model.train()
         running_loss, correct, total = 0.0, 0, 0
 
-        for inputs, labels in train_loader:
+        for inputs, labels in tqdm(train_loader, desc=f"Epoch {epoch}/{epochs}"):
             inputs, labels = inputs.to(device), labels.to(device)
 
             optimizer.zero_grad()
@@ -56,13 +62,49 @@ def train_model(model_name="lenet", dataset="MNIST", epochs=10, batch_size=64, l
             total += labels.size(0)
             correct += predicted.eq(labels).sum().item()
 
-        print(f"Epoch {epoch}/{epochs} "
-              f"Train Loss: {running_loss/len(train_loader):.4f} "
-              f"Train Acc: {100.*correct/total:.2f}%")
+        # Compute training metrics
+        train_loss = running_loss / len(train_loader)
+        train_acc = 100. * correct / total
 
-        # Evaluate on test set every 5 epochs
+        print(f"Epoch {epoch}/{epochs} "
+              f"Train Loss: {train_loss:.4f} "
+              f"Train Acc: {train_acc:.2f}%")
+
+        # Record every 5 epochs (and final)
         if epoch % 5 == 0 or epoch == epochs:
-            evaluate(model, test_loader, criterion, device)
+            test_loss, test_acc = evaluate(model, test_loader, criterion, device)
+
+            epochs_recorded.append(epoch)
+            train_losses.append(train_loss)
+            train_accuracies.append(train_acc)
+            test_losses.append(test_loss)
+            test_accuracies.append(test_acc)
+
+            print(f"Test Loss: {test_loss:.4f}, Test Acc: {test_acc:.2f}%")
+
+    # Plot metrics (2 plots)
+    plt.figure(figsize=(12, 5))
+
+    # Loss plot
+    plt.subplot(1, 2, 1)
+    plt.plot(epochs_recorded, train_losses, label="Train Loss", marker='o')
+    plt.plot(epochs_recorded, test_losses, label="Test Loss", marker='o')
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
+    plt.title(f"{model_name.upper()} - Loss")
+    plt.legend()
+
+    # Accuracy plot
+    plt.subplot(1, 2, 2)
+    plt.plot(epochs_recorded, train_accuracies, label="Train Acc", marker='o')
+    plt.plot(epochs_recorded, test_accuracies, label="Test Acc", marker='o')
+    plt.xlabel("Epochs")
+    plt.ylabel("Accuracy (%)")
+    plt.title(f"{model_name.upper()} - Accuracy")
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
 
 
 def evaluate(model, dataloader, criterion, device="cpu"):
@@ -76,8 +118,7 @@ def evaluate(model, dataloader, criterion, device="cpu"):
             _, predicted = outputs.max(1)
             total += labels.size(0)
             correct += predicted.eq(labels).sum().item()
-    print(f"Test Loss: {loss/len(dataloader):.4f}, "
-          f"Test Acc: {100.*correct/total:.2f}%")
+    return loss / len(dataloader), 100. * correct / total
 
 
 if __name__ == "__main__":
