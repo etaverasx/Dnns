@@ -4,6 +4,9 @@ import torch.optim as optim
 import argparse
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import os
+import csv
+from datetime import datetime
 
 from models.lenet import LeNet
 from models.resnet18 import get_resnet18
@@ -26,20 +29,27 @@ def build_model(model_name, dataset, device):
         raise ValueError(f"Unknown model: {model_name}")
 
 
-def train_model(model_name="lenet", dataset="MNIST", epochs=10, batch_size=64, lr=0.001, device="cpu"):
-    # Choose image size depending on model
+def train_model(model_name="lenet", dataset="MNIST", epochs=10,
+                batch_size=64, lr=0.001, device="cpu", exp_num=1, run_id=1):
+    # === Paths ===
+    plots_dir = os.path.join("reports", "task1_plots")
+    models_dir = os.path.join("reports", "task1_models", "checkpoints")
+    os.makedirs(plots_dir, exist_ok=True)
+    os.makedirs(models_dir, exist_ok=True)
+
+    # === Choose image size depending on model ===
     img_size = 224 if model_name.lower() == "vit" else 32
 
-    # Load data
+    # === Load data ===
     train_loader = get_dataloader(dataset, batch_size=batch_size, train=True, img_size=img_size)
     test_loader = get_dataloader(dataset, batch_size=batch_size, train=False, img_size=img_size)
 
-    # Model, loss, optimizer
+    # === Model, loss, optimizer ===
     model = build_model(model_name, dataset, device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
-    # Metric storage (sampled every 5 epochs)
+    # === Metric storage (sampled every 5 epochs) ===
     epochs_recorded = []
     train_losses, train_accuracies = [], []
     test_losses, test_accuracies = [], []
@@ -82,7 +92,14 @@ def train_model(model_name="lenet", dataset="MNIST", epochs=10, batch_size=64, l
 
             print(f"Test Loss: {test_loss:.4f}, Test Acc: {test_acc:.2f}%")
 
-    # Plot metrics (2 plots)
+            # === Save checkpoint ===
+            checkpoint_name = f"exp{exp_num}_{model_name}_{dataset}_epoch{epoch}.pth"
+            checkpoint_path = os.path.join(models_dir, checkpoint_name)
+            torch.save(model.state_dict(), checkpoint_path)
+
+    # === Save plots ===
+    timestamp = datetime.now().strftime("%I:%M%p")  # e.g., "12:30PM"
+
     plt.figure(figsize=(12, 5))
 
     # Loss plot
@@ -104,7 +121,29 @@ def train_model(model_name="lenet", dataset="MNIST", epochs=10, batch_size=64, l
     plt.legend()
 
     plt.tight_layout()
-    plt.show()
+
+    plot_filename = f"exp{exp_num}_{model_name}_{dataset}_{timestamp}.png"
+    plt.savefig(os.path.join(plots_dir, plot_filename))
+    plt.close()
+
+    # === Save results to CSV ===
+    csv_path = os.path.join("reports", "task1_results.csv")
+    file_exists = os.path.isfile(csv_path)
+
+    with open(csv_path, "a", newline="") as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow([
+                "Run_ID", "Experiment", "Model", "Dataset", "Epoch",
+                "Train Loss", "Train Acc", "Test Loss", "Test Acc", "Timestamp"
+            ])
+        for i, epoch in enumerate(epochs_recorded):
+            writer.writerow([
+                run_id, exp_num, model_name, dataset, epoch,
+                train_losses[i], train_accuracies[i],
+                test_losses[i], test_accuracies[i],
+                timestamp
+            ])
 
 
 def evaluate(model, dataloader, criterion, device="cpu"):
@@ -128,6 +167,8 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=0.001)
+    parser.add_argument("--exp_num", type=int, default=1, help="Experiment number")
+    parser.add_argument("--run_id", type=int, default=1, help="Global run ID")
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -138,5 +179,7 @@ if __name__ == "__main__":
         epochs=args.epochs,
         batch_size=args.batch_size,
         lr=args.lr,
-        device=device
+        device=device,
+        exp_num=args.exp_num,
+        run_id=args.run_id
     )
