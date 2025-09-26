@@ -31,9 +31,10 @@ def build_model(model_name, dataset, device):
 
 def train_model(model_name="lenet", dataset="MNIST", epochs=10,
                 batch_size=64, lr=0.001, device="cpu", exp_num=1, run_id=1):
-    # === Paths ===
-    plots_dir = os.path.join("reports", "task1_plots")
-    models_dir = os.path.join("reports", "task1_models", "checkpoints")
+    # === Task 1 directories ===
+    task_dir = os.path.join("reports", "task1")
+    plots_dir = os.path.join(task_dir, "plots")
+    models_dir = os.path.join(task_dir, "models", "checkpoints")
     os.makedirs(plots_dir, exist_ok=True)
     os.makedirs(models_dir, exist_ok=True)
 
@@ -127,7 +128,7 @@ def train_model(model_name="lenet", dataset="MNIST", epochs=10,
     plt.close()
 
     # === Save results to CSV ===
-    csv_path = os.path.join("reports", "task1_results.csv")
+    csv_path = os.path.join(task_dir, "results.csv")
     file_exists = os.path.isfile(csv_path)
 
     with open(csv_path, "a", newline="") as f:
