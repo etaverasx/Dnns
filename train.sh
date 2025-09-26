@@ -4,7 +4,7 @@
 
 MODELS=("lenet" "resnet18" "vit")
 DATASETS=("MNIST" "CIFAR10")
-EPOCHS=2 # for testing, can increase later
+EPOCHS=50 # for testing, can increase later
 BATCH_SIZE=64
 LR=0.001
 
