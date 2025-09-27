@@ -6,13 +6,15 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import os
 import csv
-from datetime import datetime
 
 from models.lenet import LeNet
 from models.resnet18 import get_resnet18
 from dataset import get_dataloader
 
 
+# ============================
+# Model builder
+# ============================
 def build_model(model_name, dataset, device):
     in_channels = 1 if dataset.upper() == "MNIST" else 3
     num_classes = 10
@@ -25,59 +27,65 @@ def build_model(model_name, dataset, device):
         raise ValueError(f"Unknown model: {model_name}")
 
 
-def evaluate(model, dataloader, criterion, device):
+# ============================
+# Evaluation
+# ============================
+def evaluate(model, loader, criterion, device):
     model.eval()
-    total_loss, correct, total = 0.0, 0, 0
+    loss_total, correct, total = 0.0, 0, 0
     with torch.no_grad():
-        for inputs, labels in dataloader:
+        for inputs, labels in loader:
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)
             loss = criterion(outputs, labels)
-            total_loss += loss.item()
-            _, preds = torch.max(outputs, 1)
-            correct += (preds == labels).sum().item()
+            loss_total += loss.item()
+            _, predicted = outputs.max(1)
             total += labels.size(0)
-    return total_loss / len(dataloader), 100. * correct / total
+            correct += predicted.eq(labels).sum().item()
+    return loss_total / len(loader), 100.0 * correct / total
 
 
-def train_model(model_name, dataset, epochs, batch_size, lr,
-                optimizer_choice, augment, exp_name):
+# ============================
+# Training
+# ============================
+def train_model(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # === Task 2 dirs ===
-    task_dir = os.path.join("reports", "task2")
-    plots_dir = os.path.join(task_dir, "plots-task2")
-    models_dir = os.path.join(task_dir, "models-task2")
+    # === Task 2 directories ===
+    task2_dir = os.path.join("reports", "task2")
+    plots_dir = os.path.join(task2_dir, "plots-task2")
+    models_dir = os.path.join(task2_dir, "models-task2")
+    csv_path = os.path.join(task2_dir, "task2-results.csv")
+
     os.makedirs(plots_dir, exist_ok=True)
     os.makedirs(models_dir, exist_ok=True)
 
-    # === Transformations ===
+    # === Data ===
     img_size = 32
-    transform_aug = None
-    if augment == "rotation":
-        transform_aug = "rotation"
-    elif augment == "flip":
-        transform_aug = "flip"
+    train_loader = get_dataloader(args.dataset, batch_size=args.batch_size, train=True, img_size=img_size)
+    test_loader = get_dataloader(args.dataset, batch_size=args.batch_size, train=False, img_size=img_size)
 
-    train_loader = get_dataloader(dataset, batch_size=batch_size, train=True, img_size=img_size)
-    test_loader = get_dataloader(dataset, batch_size=batch_size, train=False, img_size=img_size)
-
-    model = build_model(model_name, dataset, device)
+    # === Model, loss, optimizer ===
+    model = build_model(args.model, args.dataset, device)
     criterion = nn.CrossEntropyLoss()
-
-    if optimizer_choice.lower() == "sgd":
-        optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9)
+    if args.optimizer.lower() == "adam":
+        optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    elif args.optimizer.lower() == "sgd":
+        optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
     else:
-        optimizer = optim.Adam(model.parameters(), lr=lr)
+        raise ValueError(f"Unknown optimizer: {args.optimizer}")
 
-    epochs_recorded, train_losses, train_accs = [], [], []
-    test_losses, test_accs = [], []
+    # === Metric storage ===
+    epochs_recorded = []
+    train_losses, train_accuracies = [], []
+    test_losses, test_accuracies = [], []
 
-    for epoch in range(1, epochs + 1):
+    # === Training loop ===
+    for epoch in range(1, args.epochs + 1):
         model.train()
         running_loss, correct, total = 0.0, 0, 0
 
-        for inputs, labels in tqdm(train_loader, desc=f"{exp_name} | Epoch {epoch}/{epochs}"):
+        for inputs, labels in tqdm(train_loader, desc=f"{args.exp_name} | Epoch {epoch}/{args.epochs}"):
             inputs, labels = inputs.to(device), labels.to(device)
             optimizer.zero_grad()
             outputs = model(inputs)
@@ -90,63 +98,74 @@ def train_model(model_name, dataset, epochs, batch_size, lr,
             total += labels.size(0)
             correct += predicted.eq(labels).sum().item()
 
+        # Compute training metrics
         train_loss = running_loss / len(train_loader)
-        train_acc = 100. * correct / total
-        test_loss, test_acc = evaluate(model, test_loader, criterion, device)
+        train_acc = 100.0 * correct / total
 
-        epochs_recorded.append(epoch)
-        train_losses.append(train_loss)
-        train_accs.append(train_acc)
-        test_losses.append(test_loss)
-        test_accs.append(test_acc)
+        # === Record every 5 epochs ===
+        if epoch % 5 == 0 or epoch == args.epochs:
+            test_loss, test_acc = evaluate(model, test_loader, criterion, device)
 
-    # === Save plot ===
+            epochs_recorded.append(epoch)
+            train_losses.append(train_loss)
+            train_accuracies.append(train_acc)
+            test_losses.append(test_loss)
+            test_accuracies.append(test_acc)
+
+            print(f"[Epoch {epoch}] Train Loss={train_loss:.4f}, Train Acc={train_acc:.2f}%, "
+                  f"Test Loss={test_loss:.4f}, Test Acc={test_acc:.2f}%")
+
+            # === Save checkpoint ===
+            ckpt_name = f"{args.exp_name}_epoch{epoch}.pth"
+            torch.save(model.state_dict(), os.path.join(models_dir, ckpt_name))
+
+            # === Append to CSV ===
+            file_exists = os.path.isfile(csv_path)
+            with open(csv_path, "a", newline="") as f:
+                writer = csv.writer(f)
+                if not file_exists:
+                    writer.writerow([
+                        "exp_name", "model", "dataset", "optimizer",
+                        "learning_rate", "batch_size", "augmentation", "epoch",
+                        "train_loss", "train_acc", "test_loss", "test_acc"
+                    ])
+                writer.writerow([
+                    args.exp_name, args.model, args.dataset, args.optimizer,
+                    args.lr, args.batch_size, args.augment, epoch,
+                    f"{train_loss:.4f}", f"{train_acc:.2f}",
+                    f"{test_loss:.4f}", f"{test_acc:.2f}"
+                ])
+
+    # === Save plots ===
     plt.figure(figsize=(12, 5))
 
+    # Loss plot
     plt.subplot(1, 2, 1)
-    plt.plot(epochs_recorded, train_losses, label="Train Loss")
-    plt.plot(epochs_recorded, test_losses, label="Test Loss")
+    plt.plot(epochs_recorded, train_losses, label="Train Loss", marker="o")
+    plt.plot(epochs_recorded, test_losses, label="Test Loss", marker="o")
     plt.xlabel("Epochs")
     plt.ylabel("Loss")
-    plt.title(f"{model_name.upper()} Loss ({dataset})")
+    plt.title(f"{args.exp_name} Loss")
     plt.legend()
 
+    # Accuracy plot
     plt.subplot(1, 2, 2)
-    plt.plot(epochs_recorded, train_accs, label="Train Acc")
-    plt.plot(epochs_recorded, test_accs, label="Test Acc")
+    plt.plot(epochs_recorded, train_accuracies, label="Train Acc", marker="o")
+    plt.plot(epochs_recorded, test_accuracies, label="Test Acc", marker="o")
     plt.xlabel("Epochs")
     plt.ylabel("Accuracy (%)")
-    plt.title(f"{model_name.upper()} Accuracy ({dataset})")
+    plt.title(f"{args.exp_name} Accuracy")
     plt.legend()
 
-    plot_path = os.path.join(plots_dir, f"{exp_name}.png")
+    plt.tight_layout()
+    plot_path = os.path.join(plots_dir, f"{args.exp_name}.png")
     plt.savefig(plot_path)
     plt.close()
 
-    # === Save checkpoint ===
-    checkpoint_path = os.path.join(models_dir, f"{exp_name}.pth")
-    torch.save(model.state_dict(), checkpoint_path)
 
-    # === Log results to CSV ===
-    csv_path = os.path.join(task_dir, "task2-results.csv")
-    file_exists = os.path.isfile(csv_path)
-    with open(csv_path, "a", newline="") as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow([
-                "Experiment", "Model", "Dataset", "Optimizer",
-                "LearningRate", "BatchSize", "Augmentation",
-                "FinalTrainLoss", "FinalTrainAcc",
-                "FinalTestLoss", "FinalTestAcc"
-            ])
-        writer.writerow([
-            exp_name, model_name, dataset, optimizer_choice,
-            lr, batch_size, augment,
-            round(train_losses[-1], 4), round(train_accs[-1], 2),
-            round(test_losses[-1], 4), round(test_accs[-1], 2)
-        ])
-
-
+# ================================
+# CLI
+# ================================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, required=True)
@@ -160,8 +179,4 @@ if __name__ == "__main__":
     parser.add_argument("--exp_name", type=str, required=True)
 
     args = parser.parse_args()
-    train_model(
-        args.model, args.dataset, args.epochs,
-        args.batch_size, args.lr, args.optimizer,
-        args.augment, args.exp_name
-    )
+    train_model(args)   # ✅ call correct function

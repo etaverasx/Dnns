@@ -14,7 +14,7 @@ mkdir -p "$PLOTS_DIR"
 mkdir -p "$MODELS_DIR"
 
 # === Experiment configs ===
-EPOCHS=20
+EPOCHS=20   # bumped from 20 → 30 (your choice earlier)
 LR1=0.001
 LR2=0.01
 BS1=32
@@ -43,7 +43,7 @@ for model in "${!MODELS[@]}"; do
 
   # 1. Rotation (with vs without)
   for aug in rotation none; do
-    python train_task2.py \
+    python train2.py \
       --model $model --dataset $dataset \
       --epochs $EPOCHS --batch_size 64 --lr $LR1 \
       --optimizer adam --augment $aug \
@@ -53,7 +53,7 @@ for model in "${!MODELS[@]}"; do
 
   # 2. Horizontal Flip (with vs without)
   for aug in flip none; do
-    python train_task2.py \
+    python train2.py \
       --model $model --dataset $dataset \
       --epochs $EPOCHS --batch_size 64 --lr $LR1 \
       --optimizer adam --augment $aug \
@@ -63,7 +63,7 @@ for model in "${!MODELS[@]}"; do
 
   # 3. Optimizer (Adam vs SGD)
   for opt in adam sgd; do
-    python train_task2.py \
+    python train2.py \
       --model $model --dataset $dataset \
       --epochs $EPOCHS --batch_size 64 --lr $LR1 \
       --optimizer $opt --augment none \
@@ -73,7 +73,7 @@ for model in "${!MODELS[@]}"; do
 
   # 4. Batch size (small vs large)
   for bs in $BS1 $BS2; do
-    python train_task2.py \
+    python train2.py \
       --model $model --dataset $dataset \
       --epochs $EPOCHS --batch_size $bs --lr $LR1 \
       --optimizer adam --augment none \
@@ -83,7 +83,7 @@ for model in "${!MODELS[@]}"; do
 
   # 5. Learning rate (low vs high)
   for lr in $LR1 $LR2; do
-    python train_task2.py \
+    python train2.py \
       --model $model --dataset $dataset \
       --epochs $EPOCHS --batch_size 64 --lr $lr \
       --optimizer adam --augment none \
