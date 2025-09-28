@@ -1,3 +1,8 @@
+# train.py
+# Task 1 training script
+# Handles model training, evaluation, checkpoint saving, and plotting
+# Uses the simple DataLoader (no augmentations) from dataset.py
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -8,16 +13,23 @@ import os
 import csv
 from datetime import datetime
 
+# Import models
 from models.lenet import LeNet
 from models.resnet18 import get_resnet18
 from models.vit import get_vit
-from dataset import get_dataloader
+
+# Import Task 1 DataLoader (no augmentations)
+from dataset import get_dataloader_task1
 
 
+# ======================
+# Build model function
+# ======================
 def build_model(model_name, dataset, device):
-    """Return the requested model with correct input channels."""
+    """Select and return the correct model based on name and dataset."""
+    # MNIST = grayscale (1 channel), CIFAR10 = RGB (3 channels)
     in_channels = 1 if dataset.upper() == "MNIST" else 3
-    num_classes = 10
+    num_classes = 10  # both datasets have 10 classes
 
     if model_name.lower() == "lenet":
         return LeNet(num_classes=num_classes, in_channels=in_channels).to(device)
@@ -29,59 +41,84 @@ def build_model(model_name, dataset, device):
         raise ValueError(f"Unknown model: {model_name}")
 
 
+# ======================
+# Evaluate function
+# ======================
+def evaluate(model, loader, criterion, device):
+    """Evaluate model on validation/test data."""
+    model.eval()  # set model to eval mode
+    loss_total, correct, total = 0.0, 0, 0
+    with torch.no_grad():  # no gradients during evaluation
+        for inputs, labels in loader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            loss_total += loss.item()
+            _, predicted = outputs.max(1)
+            total += labels.size(0)
+            correct += predicted.eq(labels).sum().item()
+    return loss_total / len(loader), 100.0 * correct / total
+
+
+# ======================
+# Train model
+# ======================
 def train_model(model_name="lenet", dataset="MNIST", epochs=10,
                 batch_size=64, lr=0.001, device="cpu", exp_num=1, run_id=1):
-    # === Task 1 directories ===
+
+    # Create directories to save results
     task_dir = os.path.join("reports", "task1")
     plots_dir = os.path.join(task_dir, "plots")
     models_dir = os.path.join(task_dir, "models", "checkpoints")
     os.makedirs(plots_dir, exist_ok=True)
     os.makedirs(models_dir, exist_ok=True)
 
-    # === Choose image size depending on model ===
+    # Choose input image size
+    # ViT expects 224x224, while LeNet/ResNet18 use 32x32
     img_size = 224 if model_name.lower() == "vit" else 32
 
-    # === Load data ===
-    train_loader = get_dataloader(dataset, batch_size=batch_size, train=True, img_size=img_size)
-    test_loader = get_dataloader(dataset, batch_size=batch_size, train=False, img_size=img_size)
+    # Load train and test data using Task 1 dataloader
+    train_loader = get_dataloader_task1(dataset, batch_size=batch_size, train=True, img_size=img_size)
+    test_loader = get_dataloader_task1(dataset, batch_size=batch_size, train=False, img_size=img_size)
 
-    # === Model, loss, optimizer ===
+    # Initialize model, loss function, and optimizer
     model = build_model(model_name, dataset, device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
-    # === Metric storage (sampled every 5 epochs) ===
+    # Metric storage for plotting
     epochs_recorded = []
     train_losses, train_accuracies = [], []
     test_losses, test_accuracies = [], []
 
+    # === Training loop ===
     for epoch in range(1, epochs + 1):
-        model.train()
+        model.train()  # set model to training mode
         running_loss, correct, total = 0.0, 0, 0
 
         for inputs, labels in tqdm(train_loader, desc=f"Epoch {epoch}/{epochs}"):
             inputs, labels = inputs.to(device), labels.to(device)
 
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+            optimizer.zero_grad()          # clear gradients
+            outputs = model(inputs)        # forward pass
+            loss = criterion(outputs, labels)  # compute loss
+            loss.backward()                # backward pass
+            optimizer.step()               # update weights
 
+            # Track metrics
             running_loss += loss.item()
             _, predicted = outputs.max(1)
             total += labels.size(0)
             correct += predicted.eq(labels).sum().item()
 
-        # Compute training metrics
+        # Compute training accuracy/loss for this epoch
         train_loss = running_loss / len(train_loader)
         train_acc = 100. * correct / total
-
         print(f"Epoch {epoch}/{epochs} "
               f"Train Loss: {train_loss:.4f} "
               f"Train Acc: {train_acc:.2f}%")
 
-        # Record every 5 epochs (and final)
+        # Every 5 epochs (and final) evaluate on test set
         if epoch % 5 == 0 or epoch == epochs:
             test_loss, test_acc = evaluate(model, test_loader, criterion, device)
 
@@ -93,7 +130,7 @@ def train_model(model_name="lenet", dataset="MNIST", epochs=10,
 
             print(f"Test Loss: {test_loss:.4f}, Test Acc: {test_acc:.2f}%")
 
-            # === Save checkpoint ===
+            # Save model checkpoint
             checkpoint_name = f"exp{exp_num}_{model_name}_{dataset}_epoch{epoch}.pth"
             checkpoint_path = os.path.join(models_dir, checkpoint_name)
             torch.save(model.state_dict(), checkpoint_path)
@@ -122,10 +159,10 @@ def train_model(model_name="lenet", dataset="MNIST", epochs=10,
     plt.legend()
 
     plt.tight_layout()
-
-    plot_filename = f"exp{exp_num}_{model_name}_{dataset}_{timestamp}.png"
-    plt.savefig(os.path.join(plots_dir, plot_filename))
+    plot_path = os.path.join(plots_dir, f"exp{exp_num}_{model_name}_{dataset}_{timestamp}.png")
+    plt.savefig(plot_path)
     plt.close()
+
 
     # === Save results to CSV ===
     csv_path = os.path.join(task_dir, "results.csv")

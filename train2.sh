@@ -14,16 +14,15 @@ mkdir -p "$PLOTS_DIR"
 mkdir -p "$MODELS_DIR"
 
 # === Experiment configs ===
-EPOCHS=20   # bumped from 20 → 30 (your choice earlier)
+EPOCHS=20
 LR1=0.001
 LR2=0.01
 BS1=32
 BS2=128
 
-# Models: only LeNet+MNIST and ResNet18+CIFAR10
-declare -A MODELS
-MODELS["lenet"]="MNIST"
-MODELS["resnet18"]="CIFAR10"
+# Models + datasets (paired arrays, same length)
+MODELS=("lenet" "resnet18")
+DATASETS=("MNIST" "CIFAR10")
 
 echo "====================================="
 echo ">>> Task 2 experiments starting"
@@ -34,8 +33,10 @@ echo "====================================="
 
 EXP_NUM=1
 
-for model in "${!MODELS[@]}"; do
-  dataset=${MODELS[$model]}
+# Loop over both models + datasets
+for i in "${!MODELS[@]}"; do
+  model=${MODELS[$i]}
+  dataset=${DATASETS[$i]}
 
   echo "-------------------------------------"
   echo ">>> Running Task 2 for $model on $dataset"

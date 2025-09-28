@@ -5,15 +5,18 @@ import argparse
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import os
-import csv
+import csv   # ✅ needed for saving results
+from models.lenet import LeNet
+from models.resnet18 import get_resnet18
+from dataset import get_dataloader_task2   # ✅ use Task 2 dataloader with augment option
 
-from models.lenet import LeNet            # LeNet model
-from models.resnet18 import get_resnet18  # ResNet18 model
-from dataset import get_dataloader        # dataset loader
 
-
+# ============================
+# Build model (LeNet or ResNet18)
+# ============================
 def build_model(model_name, dataset, device):
-    in_channels = 1 if dataset.upper() == "MNIST" else 3  # MNIST=grayscale, CIFAR10=RGB
+    # MNIST = grayscale (1 channel), CIFAR10 = RGB (3 channels)
+    in_channels = 1 if dataset.upper() == "MNIST" else 3
     num_classes = 10
 
     if model_name.lower() == "lenet":
@@ -24,40 +27,63 @@ def build_model(model_name, dataset, device):
         raise ValueError(f"Unknown model: {model_name}")
 
 
+# ============================
+# Evaluation function
+# ============================
 def evaluate(model, loader, criterion, device):
-    model.eval()
+    model.eval()  # put model in evaluation mode
     loss_total, correct, total = 0.0, 0, 0
-    with torch.no_grad():  # no gradients during evaluation
+
+    with torch.no_grad():  # no gradients needed during evaluation
         for inputs, labels in loader:
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)
             loss = criterion(outputs, labels)
+
             loss_total += loss.item()
-            _, predicted = outputs.max(1)  # take class with highest logit
+            _, predicted = outputs.max(1)
             total += labels.size(0)
             correct += predicted.eq(labels).sum().item()
+
     return loss_total / len(loader), 100.0 * correct / total
 
 
+# ============================
+# Training loop for Task 2
+# ============================
 def train_model(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # output folders for Task 2
+    # === Directories for Task 2 experiments ===
     task2_dir = os.path.join("reports", "task2")
     plots_dir = os.path.join(task2_dir, "plots-task2")
     models_dir = os.path.join(task2_dir, "models-task2")
     csv_path = os.path.join(task2_dir, "task2-results.csv")
+
     os.makedirs(plots_dir, exist_ok=True)
     os.makedirs(models_dir, exist_ok=True)
 
-    # load training and test data
-    img_size = 32
-    train_loader = get_dataloader(args.dataset, batch_size=args.batch_size, train=True, img_size=img_size)
-    test_loader = get_dataloader(args.dataset, batch_size=args.batch_size, train=False, img_size=img_size)
+    # === Load dataset ===
+    img_size = 32  # always 32x32 for LeNet and ResNet18
+    train_loader = get_dataloader_task2(
+        dataset_name=args.dataset,
+        batch_size=args.batch_size,
+        train=True,
+        img_size=img_size,
+        augment=args.augment   # ✅ enable augmentations for Task 2
+    )
+    test_loader = get_dataloader_task2(
+        dataset_name=args.dataset,
+        batch_size=args.batch_size,
+        train=False,
+        img_size=img_size,
+        augment="none"   # no augmentation during testing
+    )
 
-    # build model, define loss and optimizer
+    # === Model, loss, optimizer ===
     model = build_model(args.model, args.dataset, device)
     criterion = nn.CrossEntropyLoss()
+
     if args.optimizer.lower() == "adam":
         optimizer = optim.Adam(model.parameters(), lr=args.lr)
     elif args.optimizer.lower() == "sgd":
@@ -65,17 +91,19 @@ def train_model(args):
     else:
         raise ValueError(f"Unknown optimizer: {args.optimizer}")
 
-    # metric storage
-    epochs_recorded, train_losses, train_accuracies = [], [], []
-    test_losses, test_accuracies = [], [], []
+    # === Metric storage ===
+    epochs_recorded = []
+    train_losses, train_accuracies = [], []
+    test_losses, test_accuracies = [], []
 
-    # main training loop
+    # === Training loop ===
     for epoch in range(1, args.epochs + 1):
         model.train()
         running_loss, correct, total = 0.0, 0, 0
 
         for inputs, labels in tqdm(train_loader, desc=f"{args.exp_name} | Epoch {epoch}/{args.epochs}"):
             inputs, labels = inputs.to(device), labels.to(device)
+
             optimizer.zero_grad()
             outputs = model(inputs)
             loss = criterion(outputs, labels)
@@ -87,10 +115,11 @@ def train_model(args):
             total += labels.size(0)
             correct += predicted.eq(labels).sum().item()
 
+        # Compute training metrics
         train_loss = running_loss / len(train_loader)
         train_acc = 100.0 * correct / total
 
-        # record every 5 epochs
+        # === Evaluate every 5 epochs (and final) ===
         if epoch % 5 == 0 or epoch == args.epochs:
             test_loss, test_acc = evaluate(model, test_loader, criterion, device)
 
@@ -103,11 +132,11 @@ def train_model(args):
             print(f"[Epoch {epoch}] Train Loss={train_loss:.4f}, Train Acc={train_acc:.2f}%, "
                   f"Test Loss={test_loss:.4f}, Test Acc={test_acc:.2f}%")
 
-            # save checkpoint
+            # === Save checkpoint ===
             ckpt_name = f"{args.exp_name}_epoch{epoch}.pth"
             torch.save(model.state_dict(), os.path.join(models_dir, ckpt_name))
 
-            # append to CSV
+            # === Append results to CSV ===
             file_exists = os.path.isfile(csv_path)
             with open(csv_path, "a", newline="") as f:
                 writer = csv.writer(f)
@@ -124,8 +153,10 @@ def train_model(args):
                     f"{test_loss:.4f}", f"{test_acc:.2f}"
                 ])
 
-    # save plots
+    # === Save plots (Loss + Accuracy curves) ===
     plt.figure(figsize=(12, 5))
+
+    # Loss plot
     plt.subplot(1, 2, 1)
     plt.plot(epochs_recorded, train_losses, label="Train Loss", marker="o")
     plt.plot(epochs_recorded, test_losses, label="Test Loss", marker="o")
@@ -134,6 +165,7 @@ def train_model(args):
     plt.title(f"{args.exp_name} Loss")
     plt.legend()
 
+    # Accuracy plot
     plt.subplot(1, 2, 2)
     plt.plot(epochs_recorded, train_accuracies, label="Train Acc", marker="o")
     plt.plot(epochs_recorded, test_accuracies, label="Test Acc", marker="o")
@@ -146,6 +178,26 @@ def train_model(args):
     plot_path = os.path.join(plots_dir, f"{args.exp_name}.png")
     plt.savefig(plot_path)
     plt.close()
+
+
+# ============================
+# CLI (Command line interface)
+# ============================
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", type=str, required=True)
+    parser.add_argument("--dataset", type=str, required=True)
+    parser.add_argument("--epochs", type=int, default=20)
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--lr", type=float, default=0.001)
+    parser.add_argument("--optimizer", type=str, default="adam")
+    parser.add_argument("--augment", type=str, default="none",
+                        choices=["none", "rotation", "flip"])  # ✅ augmentation toggle
+    parser.add_argument("--exp_name", type=str, required=True)
+
+    args = parser.parse_args()
+    train_model(args)   # ✅ start training with args
+
 
 
 if __name__ == "__main__":

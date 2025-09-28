@@ -1,3 +1,5 @@
+# valid.py - Validate Task 1 checkpoints on MNIST and CIFAR-10
+
 import torch
 import torch.nn as nn
 import os
@@ -7,15 +9,21 @@ from tqdm import tqdm
 from models.lenet import LeNet
 from models.resnet18 import get_resnet18
 from models.vit import get_vit
-from dataset import get_dataloader
+from dataset import get_dataloader_task1   #  Task 1 dataloader only
 
 
+# --------------------------
+# Load model weights
+# --------------------------
 def load_checkpoint(model, checkpoint_path, device):
     state_dict = torch.load(checkpoint_path, map_location=device)
-    model.load_state_dict(state_dict, strict=False)  # safe for ViT
+    model.load_state_dict(state_dict, strict=False)  # strict=False safe for ViT
     return model
 
 
+# --------------------------
+# Run evaluation
+# --------------------------
 def validate_model(model, dataloader, device):
     criterion = nn.CrossEntropyLoss()
     model.eval()
@@ -39,11 +47,11 @@ def validate_model(model, dataloader, device):
     return avg_loss, avg_acc
 
 
+# --------------------------
+# Parse checkpoint filename
+# Example: exp3_resnet18_MNIST_epoch25.pth
+# --------------------------
 def parse_checkpoint_name(ckpt):
-    """
-    Example: exp3_resnet18_MNIST_epoch25.pth
-    Returns: exp_num=3, model=resnet18, dataset=MNIST, epoch=25
-    """
     parts = ckpt.replace(".pth", "").split("_")
     exp_num = int(parts[0].replace("exp", ""))
     model = parts[1]
@@ -52,6 +60,9 @@ def parse_checkpoint_name(ckpt):
     return exp_num, model, dataset, epoch
 
 
+# --------------------------
+# Validate all checkpoints in Task 1
+# --------------------------
 def validate_all():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -68,7 +79,7 @@ def validate_all():
         try:
             exp_num, model_name, dataset, epoch = parse_checkpoint_name(ckpt)
         except Exception:
-            print(f"⚠️ Skipping malformed checkpoint name: {ckpt}")
+            print(f" Skipping malformed checkpoint name: {ckpt}")
             continue
 
         # dataset & preprocessing
@@ -91,8 +102,8 @@ def validate_all():
         else:
             continue
 
-        # dataloader
-        dataloader = get_dataloader(dataset, batch_size=64, train=False, img_size=img_size)
+        # dataloader (Task 1 pipeline only)
+        dataloader = get_dataloader_task1(dataset, batch_size=64, train=False, img_size=img_size)
 
         # load weights & eval
         model = load_checkpoint(model, ckpt_path, device)
@@ -117,7 +128,7 @@ def validate_all():
     # save results
     df = pd.DataFrame(results)
     df.to_csv(results_csv, index=False)
-    print(f"\n✅ Validation complete. Results saved to {results_csv}")
+    print(f"\n Validation complete. Results saved to {results_csv}")
 
 
 if __name__ == "__main__":
